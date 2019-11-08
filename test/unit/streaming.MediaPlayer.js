@@ -16,6 +16,7 @@ const expect = require('chai').expect;
 const ELEMENT_NOT_ATTACHED_ERROR = 'You must first call attachView() to set the video element before calling this method';
 const PLAYBACK_NOT_INITIALIZED_ERROR = 'You must first call initialize() and set a valid source and view before calling this method';
 const STREAMING_NOT_INITIALIZED_ERROR = 'You must first call initialize() and set a source before calling this method';
+const SOURCE_NOT_ATTACHED_ERROR = 'You must first call attachSource() with a valid source before calling this method';
 const MEDIA_PLAYER_NOT_INITIALIZED_ERROR = 'MediaPlayer not initialized!';
 
 describe('MediaPlayer', function () {
@@ -179,6 +180,10 @@ describe('MediaPlayer', function () {
             it('Method durationAsUTC should throw an exception', function () {
                 expect(player.durationAsUTC).to.throw(PLAYBACK_NOT_INITIALIZED_ERROR);
             });
+
+            it('Method preload should throw an exception', function () {
+                expect(player.preload).to.throw(SOURCE_NOT_ATTACHED_ERROR);
+            });
         });
 
         describe('When it is initialized', function () {
@@ -186,6 +191,16 @@ describe('MediaPlayer', function () {
                 playbackControllerMock.reset();
                 videoElementMock.reset();
                 player.initialize(videoElementMock, dummyUrl, false);
+            });
+
+            it('Method getDVRWindowSize should return 0', function () {
+                let dvrWindowSize = player.getDVRWindowSize();
+                expect(dvrWindowSize).equal(0); // jshint ignore:line
+            });
+
+            it('Method getDVRSeekOffset should return 0', function () {
+                let dvrSeekOffset = player.getDVRSeekOffset();
+                expect(dvrSeekOffset).equal(0); // jshint ignore:line
             });
 
             it('Method play should start playing', function () {
@@ -197,6 +212,7 @@ describe('MediaPlayer', function () {
                 isPlaying = playbackControllerMock.isPlaying();
                 expect(isPlaying).to.be.true; // jshint ignore:line
             });
+
             it('Method pause should pause playback', function () {
                 let paused = playbackControllerMock.isPaused();
                 expect(paused).to.be.false; // jshint ignore:line
@@ -512,7 +528,7 @@ describe('MediaPlayer', function () {
         });
 
         it('Method getAverageThroughput should return 0 when throughputHistory is not set up', function () {
-            const averageThroughput = player.getAverageThroughput('video');
+            const averageThroughput = player.getAverageThroughput(Constants.VIDEO);
             expect(averageThroughput).to.equal(0);
         });
 
@@ -523,7 +539,7 @@ describe('MediaPlayer', function () {
                     return AVERAGE_THROUGHPUT;
                 }
             };
-            const averageThroughput = player.getAverageThroughput('video');
+            const averageThroughput = player.getAverageThroughput(Constants.VIDEO);
             expect(averageThroughput).to.equal(AVERAGE_THROUGHPUT);
         });
 
@@ -546,10 +562,10 @@ describe('MediaPlayer', function () {
                 let qualityFor = abrControllerMock.getQualityFor('video', {
                     id: 'dummyId'
                 });
-                expect(qualityFor).to.equal(AbrControllerMock.QUALITY_DEFAULT);
+                expect(qualityFor).to.equal(abrControllerMock.QUALITY_DEFAULT());
 
                 qualityFor = player.getQualityFor('video');
-                expect(qualityFor).to.equal(AbrControllerMock.QUALITY_DEFAULT);
+                expect(qualityFor).to.equal(abrControllerMock.QUALITY_DEFAULT());
 
                 player.setQualityFor('video', 10);
 
@@ -560,6 +576,11 @@ describe('MediaPlayer', function () {
 
                 qualityFor = player.getQualityFor('video');
                 expect(qualityFor).to.equal(10);
+            });
+
+            it('Method getTopBitrateInfoFor should return null when type is undefined', function () {
+                const topBitrateInfo = player.getTopBitrateInfoFor();
+                expect(topBitrateInfo).to.be.null; // jshint ignore:line
             });
         });
     });
@@ -745,16 +766,6 @@ describe('MediaPlayer', function () {
             expect(LongFormContentDurationThreshold).to.equal(50);
         });
 
-        it('should configure setSegmentOverlapToleranceTime', function () {
-            let val = player.getSettings().streaming.segmentOverlapToleranceTime;
-            expect(val).to.equal(0.2);
-
-            player.updateSettings({'streaming': { 'segmentOverlapToleranceTime': 1.5 }});
-
-            val = player.getSettings().streaming.segmentOverlapToleranceTime;
-            expect(val).to.equal(1.5);
-        });
-
         it('should configure cacheLoadThresholds', function () {
             let cacheLoadThresholdForVideo = player.getSettings().streaming.cacheLoadThresholds[Constants.VIDEO];
             expect(cacheLoadThresholdForVideo).to.equal(50);
@@ -775,15 +786,15 @@ describe('MediaPlayer', function () {
 
         it('should configure jumpGap feature', function () {
             let jumpGaps = player.getSettings().streaming.jumpGaps;
-            expect(jumpGaps).to.equal(false);
-
-            player.updateSettings({'streaming': { 'jumpGaps': true }});
-
-            jumpGaps = player.getSettings().streaming.jumpGaps;
             expect(jumpGaps).to.equal(true);
 
+            player.updateSettings({'streaming': { 'jumpGaps': false }});
+
+            jumpGaps = player.getSettings().streaming.jumpGaps;
+            expect(jumpGaps).to.equal(false);
+
             let smallGapLimit = player.getSettings().streaming.smallGapLimit;
-            expect(smallGapLimit).to.equal(0.8);
+            expect(smallGapLimit).to.equal(1.5);
 
             player.updateSettings({'streaming': { 'smallGapLimit': 0.5 }});
 
@@ -852,6 +863,18 @@ describe('MediaPlayer', function () {
         describe('When it is not initialized', function () {
             it('Method setTextTrack should throw an exception', function () {
                 expect(player.setTextTrack).to.throw(PLAYBACK_NOT_INITIALIZED_ERROR);
+            });
+
+            it('Method setTextDefaultLanguage should throw an invalid Arguments exception when lang is undefined', function () {
+                expect(player.setTextDefaultLanguage).to.throw(Constants.BAD_ARGUMENT_ERROR);
+            });
+
+            it('Method setTextDefaultEnabled should throw an invalid Arguments exception when enable is undefined', function () {
+                expect(player.setTextDefaultEnabled).to.throw(Constants.BAD_ARGUMENT_ERROR);
+            });
+
+            it('Method getTextDefaultEnabled should return true', function () {
+                expect(player.getTextDefaultEnabled()).to.be.true; // jshint ignore:line
             });
         });
     });
@@ -1070,6 +1093,21 @@ describe('MediaPlayer', function () {
             it('Method getDashMetrics should return dash metrics', function () {
                 const metricsExt = player.getDashMetrics();
                 expect(metricsExt).to.exist; // jshint ignore:line
+            });
+
+            it('Method getBufferLength should return 0 when no type is defined', function () {
+                const bufferLength = player.getBufferLength();
+                expect(bufferLength).to.equals(0); // jshint ignore:line
+            });
+
+            it('Method getBufferLength should return NaN when type is Muxed', function () {
+                const bufferLength = player.getBufferLength(Constants.MUXED);
+                expect(bufferLength).to.be.NaN; // jshint ignore:line
+            });
+
+            it('Method getBufferLength should return NaN when type is Video', function () {
+                const bufferLength = player.getBufferLength(Constants.VIDEO);
+                expect(bufferLength).to.be.NaN; // jshint ignore:line
             });
         });
     });

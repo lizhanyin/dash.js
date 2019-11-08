@@ -29,7 +29,7 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  */
 import Constants from '../constants/Constants';
-import BufferController from './BufferController';
+import MetricsConstants from '../constants/MetricsConstants';
 import EventBus from '../../core/EventBus';
 import Events from '../../core/events/Events';
 import FactoryMaker from '../../core/FactoryMaker';
@@ -96,6 +96,7 @@ function PlaybackController() {
         eventBus.on(Events.PLAYBACK_PROGRESS, onPlaybackProgression, this);
         eventBus.on(Events.PLAYBACK_TIME_UPDATED, onPlaybackProgression, this);
         eventBus.on(Events.PLAYBACK_ENDED, onPlaybackEnded, this);
+        eventBus.on(Events.STREAM_INITIALIZING, onStreamInitializing, this);
 
         if (playOnceInitialized) {
             playOnceInitialized = false;
@@ -154,6 +155,10 @@ function PlaybackController() {
                 }
             } else {
                 eventBus.trigger(Events.PLAYBACK_SEEK_ASKED);
+                let initialStartTime = getStreamStartTime(false);
+                if (!isDynamic && time < initialStartTime) {
+                    time = initialStartTime;
+                }
                 logger.info('Requesting seek to time: ' + time);
                 videoModel.setCurrentTime(time, stickToBuffered);
             }
@@ -292,6 +297,7 @@ function PlaybackController() {
             eventBus.off(Events.PLAYBACK_PROGRESS, onPlaybackProgression, this);
             eventBus.off(Events.PLAYBACK_TIME_UPDATED, onPlaybackProgression, this);
             eventBus.off(Events.PLAYBACK_ENDED, onPlaybackEnded, this);
+            eventBus.off(Events.STREAM_INITIALIZING, onStreamInitializing, this);
             stopUpdatingWallclockTime();
             removeAllListeners();
         }
@@ -399,13 +405,15 @@ function PlaybackController() {
         if (!DVRWindow) return NaN;
         if (currentTime > DVRWindow.end) {
             actualTime = Math.max(DVRWindow.end - streamInfo.manifestInfo.minBufferTime * 2, DVRWindow.start);
-        } else if (currentTime + 0.250 < DVRWindow.start) {
+        } else if (currentTime + 0.250 < DVRWindow.start && DVRWindow.start - currentTime > DVRWindow.start - 315360000) {
             // Checking currentTime plus 250ms as the 'timeupdate' is fired with a frequency between 4Hz and 66Hz
             // https://developer.mozilla.org/en-US/docs/Web/Events/timeupdate
             // http://w3c.github.io/html/single-page.html#offsets-into-the-media-resource
+            // Checking also duration of the DVR makes sense. We detected temporary situations in which currentTime
+            // is bad reported by the browser which causes playback to jump to start (315360000 = 1 year)
             actualTime = DVRWindow.start;
         } else {
-            return currentTime;
+            actualTime = currentTime;
         }
 
         return actualTime;
@@ -441,9 +449,9 @@ function PlaybackController() {
         if (e.error) return;
 
         const representationInfo = adapter.convertDataToRepresentationInfo(e.currentRepresentation);
-        const info = representationInfo.mediaInfo.streamInfo;
+        const info = representationInfo ? representationInfo.mediaInfo.streamInfo : null;
 
-        if (streamInfo.id !== info.id) return;
+        if (info === null || streamInfo.id !== info.id) return;
         streamInfo = info;
 
         updateCurrentTime();
@@ -588,7 +596,7 @@ function PlaybackController() {
         if (
             isDynamic &&
             settings.get().streaming.lowLatencyEnabled &&
-            settings.get().streaming.lowLatencyEnabled > 0 &&
+            settings.get().streaming.liveCatchUpPlaybackRate > 0 &&
             !isPaused() &&
             !isSeeking()
         ) {
@@ -745,22 +753,59 @@ function PlaybackController() {
         if (e.streamInfo.id !== streamInfo.id) return;
 
         if (settings.get().streaming.lowLatencyEnabled) {
-            if (e.state === BufferController.BUFFER_EMPTY && !isSeeking()) {
+            if (e.state === MetricsConstants.BUFFER_EMPTY && !isSeeking()) {
                 if (!playbackStalled) {
                     playbackStalled = true;
                     stopPlaybackCatchUp();
                 }
             }
         } else {
-            videoModel.setStallState(e.mediaType, e.state === BufferController.BUFFER_EMPTY);
+            videoModel.setStallState(e.mediaType, e.state === MetricsConstants.BUFFER_EMPTY);
         }
     }
-
 
     function onPlaybackStalled(e) {
         eventBus.trigger(Events.PLAYBACK_STALLED, {
             e: e
         });
+    }
+
+    function onStreamInitializing(e) {
+        applyServiceDescription(e.streamInfo, e.mediaInfo);
+    }
+
+    function applyServiceDescription(streamInfo, mediaInfo) {
+        if (streamInfo && streamInfo.manifestInfo && streamInfo.manifestInfo.serviceDescriptions) {
+            // is there a service description for low latency defined?
+            const llsd = streamInfo.manifestInfo.serviceDescriptions.find((sd) => {
+                return sd.schemeIdUri === Constants.SERVICE_DESCRIPTION_LL_SCHEME;
+            });
+
+            if (llsd) {
+                if (mediaInfo && mediaInfo.supplementalProperties &&
+                    mediaInfo.supplementalProperties[Constants.SUPPLEMENTAL_PROPERTY_LL_SCHEME] === 'true') {
+                    if (llsd.latency && llsd.latency.target > 0) {
+                        logger.debug('Apply LL properties coming from service description. Target Latency (ms):', llsd.latency.target);
+                        settings.update({
+                            streaming: {
+                                lowLatencyEnabled: true,
+                                liveDelay: llsd.latency.target / 1000,
+                                liveCatchUpMinDrift: llsd.latency.max > llsd.latency.target ? (llsd.latency.max - llsd.latency.target) / 1000 : undefined
+                            }
+                        });
+                    }
+                    if (llsd.playbackRate && llsd.playbackRate.max > 1.0) {
+                        logger.debug('Apply LL properties coming from service description. Max PlaybackRate:', llsd.playbackRate.max);
+                        settings.update({
+                            streaming: {
+                                lowLatencyEnabled: true,
+                                liveCatchUpPlaybackRate: llsd.playbackRate.max - 1.0
+                            }
+                        });
+                    }
+                }
+            }
+        }
     }
 
     function addAllListeners() {

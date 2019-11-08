@@ -240,22 +240,36 @@ app.controller('DashController', function ($scope, sources, contributors, dashif
             if ($scope.player) {
                 $scope.player.updateSettings(config);
             }
+        } else {
+            // Set default initial configuration
+            var initialConfig = {
+                'debug': {
+                    'logLevel': dashjs.Debug.LOG_LEVEL_INFO
+                },
+                'streaming': {
+                    'fastSwitchEnabled': $scope.fastSwitchSelected,
+                    'jumpGaps': true,
+                    'abr': {
+                        'autoSwitchBitrate': {
+                            'video': $scope.videoAutoSwitchSelected
+                        }
+                    }
+                }
+            }
+            $scope.player.updateSettings(initialConfig);
         }
     };
+
     reqConfig.open("GET", "dashjs_config.json", true);
     reqConfig.setRequestHeader("Content-type", "application/json");
     reqConfig.send();
 
     $scope.player.on(dashjs.MediaPlayer.events.ERROR, function (e) { /* jshint ignore:line */
-        //use the new error callback
         if (!e.event) {
             $scope.$apply(function () {
                 $scope.error = e.error.message;
                 $scope.errorType = 'Dash.js :' + e.error.code;
                 switch (e.error.code) {
-                    case dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_MANIFEST:
-                        $scope.error += '. Please, check your internet connection. Http status code is ' + e.error.data.response.status;
-                        break;
                     case dashjs.MediaPlayer.errors.MANIFEST_LOADER_PARSING_FAILURE_ERROR_CODE:
                     case dashjs.MediaPlayer.errors.MANIFEST_LOADER_LOADING_FAILURE_ERROR_CODE:
                     case dashjs.MediaPlayer.errors.XLINK_LOADER_LOADING_FAILURE_ERROR_CODE:
@@ -272,9 +286,6 @@ app.controller('DashController', function ($scope, sources, contributors, dashif
                     case dashjs.MediaPlayer.errors.CAPABILITY_MEDIASOURCE_ERROR_CODE:
                     case dashjs.MediaPlayer.errors.CAPABILITY_MEDIAKEYS_ERROR_CODE:
                     case dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_SIDX:
-                    case dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_CONTENT:
-                    case dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_INITIALIZATION:
-                    case dashjs.MediaPlayer.errors.DOWNLOAD_ERROR_ID_XLINK:
                     case dashjs.MediaPlayer.errors.MANIFEST_ERROR_ID_CODEC:
                     case dashjs.MediaPlayer.errors.MANIFEST_ERROR_ID_PARSE:
                     case dashjs.MediaPlayer.errors.MANIFEST_ERROR_ID_NOSTREAMS:
@@ -303,23 +314,6 @@ app.controller('DashController', function ($scope, sources, contributors, dashif
     if (doesTimeMarchesOn()) {
         $scope.player.attachTTMLRenderingDiv($('#video-caption')[0]);
     }
-
-    // Set initial configuration
-    var initialConfig = {
-        'debug': {
-            'logLevel': dashjs.Debug.LOG_LEVEL_INFO
-        },
-        'streaming': {
-            'fastSwitchEnabled': $scope.fastSwitchSelected,
-            'jumpGaps': false,
-            'abr': {
-                'autoSwitchBitrate': {
-                    'video': $scope.videoAutoSwitchSelected
-                }
-            }
-        }
-    }
-    $scope.player.updateSettings(initialConfig);
 
     // get buffer default value
     var currentConfig = $scope.player.getSettings();
@@ -579,13 +573,30 @@ app.controller('DashController', function ($scope, sources, contributors, dashif
 
         const initBitrate = parseInt($scope.initialVideoBitrate);
         if (!isNaN(initBitrate)) {
-            config.abr = {
+            config.streaming.abr = {
                 'initialBitrate': {
                     'video': initBitrate
                 }
             }
         }
 
+        const minBitrate = parseInt($scope.minVideoBitrate);
+        if (!isNaN(minBitrate)) {
+            config.streaming.abr = {
+                'minBitrate': {
+                    'video': minBitrate
+                }
+            }
+        }
+
+        const maxBitrate = parseInt($scope.maxVideoBitrate);
+        if (!isNaN(maxBitrate)) {
+            config.streaming.abr = {
+                'maxBitrate': {
+                    'video': maxBitrate
+                }
+            }
+        }        
         $scope.player.updateSettings(config);
 
         $scope.controlbar.reset();
